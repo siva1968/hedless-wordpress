@@ -85,9 +85,30 @@ $table_prefix = 'wp_';
  *
  * @link https://developer.wordpress.org/advanced-administration/debug/debug-wordpress/
  */
-define( 'WP_DEBUG', false );
+define( 'WP_DEBUG', true );
+define( 'WP_DEBUG_LOG', true );
+define( 'WP_DEBUG_DISPLAY', false );
 
 /* Add any custom values between this line and the "stop editing" line. */
+
+// Headless WordPress Configuration
+// Enable CORS for REST API
+define( 'WP_REST_API_DEBUG', true );
+
+// JWT Authentication Secret Key (change this to a random string)
+define( 'JWT_AUTH_SECRET_KEY', 'your-super-secret-jwt-key-change-this-to-something-random' );
+define( 'JWT_AUTH_CORS_ENABLE', true );
+
+// WooCommerce specific settings for headless
+define( 'WC_ADMIN_DISABLED', false ); // Keep WC admin for management
+define( 'WOOCOMMERCE_BLOCKS_PHASE', 3 ); // Enable WooCommerce blocks
+
+// Performance optimizations
+define( 'WP_MEMORY_LIMIT', '512M' );
+define( 'WP_MAX_MEMORY_LIMIT', '512M' );
+
+// Security enhancements
+define( 'DISALLOW_FILE_EDIT', true ); // Disable file editor in admin
 
 
 

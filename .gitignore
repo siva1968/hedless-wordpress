@@ -1,0 +1,69 @@
+# WordPress Core Files
+wp-config.php
+wp-config-local.php
+wp-config-production.php
+
+# Database
+*.sql
+*.sql.gz
+
+# Log files
+*.log
+wp-content/debug.log
+error_log
+
+# Cache
+wp-content/cache/
+wp-content/uploads/cache/
+
+# Backup files
+*.bak
+*~
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Node modules (for frontend development)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+
+# WordPress uploads (optional - uncomment if you don't want to track uploads)
+# wp-content/uploads/
+
+# Plugin/Theme development
+wp-content/upgrade/
+wp-content/uploads/wc-logs/
+
+# Composer
+vendor/
+composer.lock
+
+# Security
+.htaccess.bak
+wp-config-sample.php
+
+# Local development
+/local-config.php
+/wp-content/mu-plugins/local-dev-tools.php
