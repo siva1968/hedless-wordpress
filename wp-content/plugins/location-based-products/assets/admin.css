@@ -1,0 +1,414 @@
+/* Location-Based Products Admin Styles */
+
+.lbp-locations-container {
+    max-width: 1200px;
+}
+
+.lbp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #ddd;
+}
+
+.lbp-header h2 {
+    margin: 0;
+}
+
+.lbp-locations-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.location-card {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: box-shadow 0.3s ease;
+}
+
+.location-card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.location-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.location-header h3 {
+    margin: 0;
+    color: #333;
+}
+
+.location-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.location-actions .button {
+    padding: 4px 8px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.location-details p {
+    margin: 8px 0;
+    font-size: 14px;
+}
+
+.location-details strong {
+    color: #666;
+    font-weight: 600;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-badge.active {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-badge.inactive {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.no-locations {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 60px 20px;
+    background: #f9f9f9;
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+}
+
+.no-locations p {
+    margin: 0;
+    font-size: 16px;
+    color: #666;
+}
+
+/* Modal Styles */
+.lbp-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 100000;
+}
+
+.modal-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    max-width: 600px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 30px;
+    border-bottom: 1px solid #eee;
+    background: #f8f9fa;
+    border-radius: 8px 8px 0 0;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: #333;
+}
+
+.close {
+    font-size: 28px;
+    font-weight: bold;
+    color: #999;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.close:hover {
+    color: #333;
+}
+
+#location-form {
+    padding: 20px 30px;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 20px 30px;
+    border-top: 1px solid #eee;
+    background: #f8f9fa;
+    border-radius: 0 0 8px 8px;
+}
+
+/* Test Container Styles */
+.lbp-test-container {
+    max-width: 800px;
+}
+
+.test-methods {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 30px;
+    margin-top: 30px;
+}
+
+.test-method {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 25px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.test-method h3 {
+    margin-top: 0;
+    color: #333;
+    border-bottom: 2px solid #0073aa;
+    padding-bottom: 10px;
+}
+
+.test-method form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.test-method input[type="text"],
+.test-method input[type="number"] {
+    width: 100%;
+}
+
+.test-result {
+    margin-top: 15px;
+    padding: 15px;
+    border-radius: 6px;
+    display: none;
+}
+
+.test-result.success {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.test-result.error {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.test-result.info {
+    background: #d1ecf1;
+    border: 1px solid #bee5eb;
+    color: #0c5460;
+}
+
+/* Import/Export Styles */
+.lbp-import-container {
+    max-width: 800px;
+}
+
+.import-export-sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 30px;
+    margin-top: 30px;
+}
+
+.section {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 25px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.section h3 {
+    margin-top: 0;
+    color: #333;
+    border-bottom: 2px solid #0073aa;
+    padding-bottom: 10px;
+}
+
+.section code {
+    background: #f1f1f1;
+    padding: 10px;
+    border-radius: 4px;
+    display: block;
+    margin: 10px 0;
+    font-size: 12px;
+    overflow-x: auto;
+}
+
+#import-form {
+    margin-top: 15px;
+}
+
+#import-form input[type="file"] {
+    margin-bottom: 15px;
+}
+
+#import-result {
+    margin-top: 15px;
+    padding: 15px;
+    border-radius: 6px;
+    display: none;
+}
+
+/* Product Management Styles */
+.bulk-actions {
+    margin: 20px 0;
+    padding: 15px;
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+}
+
+.bulk-actions select,
+.bulk-actions button {
+    margin-right: 10px;
+}
+
+.wp-list-table img {
+    border-radius: 4px;
+    margin-top: 5px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .lbp-locations-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .location-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .test-methods,
+    .import-export-sections {
+        grid-template-columns: 1fr;
+    }
+    
+    .modal-content {
+        width: 95%;
+        margin: 20px;
+        position: relative;
+        top: 20px;
+        left: 0;
+        transform: none;
+    }
+    
+    .modal-header,
+    #location-form,
+    .modal-footer {
+        padding: 15px 20px;
+    }
+}
+
+/* Form Enhancements */
+.form-table th {
+    width: 150px;
+    padding: 15px 0;
+}
+
+.form-table td {
+    padding: 15px 0;
+}
+
+.form-table .description {
+    font-style: italic;
+    color: #666;
+    margin-top: 5px;
+}
+
+/* Loading States */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #ddd;
+    border-top: 2px solid #0073aa;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 8px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Notifications */
+.lbp-notification {
+    position: fixed;
+    top: 32px;
+    right: 20px;
+    z-index: 100001;
+    padding: 15px 20px;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    min-width: 300px;
+    animation: slideIn 0.3s ease;
+}
+
+.lbp-notification.success {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.lbp-notification.error {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
