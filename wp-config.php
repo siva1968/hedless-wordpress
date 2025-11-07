@@ -110,8 +110,6 @@ define( 'WP_MAX_MEMORY_LIMIT', '512M' );
 // Security enhancements
 define( 'DISALLOW_FILE_EDIT', true ); // Disable file editor in admin
 
-
-
 /* That's all, stop editing! Happy publishing. */
 
 /** Absolute path to the WordPress directory. */

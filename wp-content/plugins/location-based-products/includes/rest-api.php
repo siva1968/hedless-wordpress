@@ -177,7 +177,7 @@ class LBP_REST_API {
         
         return rest_ensure_response([
             'success' => true,
-            'location' => $detected_location,
+            'location' => $this->format_location_data($detected_location),
             'detection_method' => $this->get_detection_method($lat, $lng, $postal_code, $ip),
             'timestamp' => current_time('timestamp')
         ]);
@@ -383,7 +383,7 @@ class LBP_REST_API {
     }
     
     private function find_location_by_coordinates($lat, $lng) {
-        return LBP_Helpers::find_closest_location($lat, $lng);
+        return LBP_Helpers::find_location_by_coordinates($lat, $lng);
     }
     
     private function find_location_by_postal_code($postal_code) {

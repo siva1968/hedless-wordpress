@@ -15,13 +15,13 @@ RewriteRule . /hedless/index.php [L]
 
 # END WordPress
 
-# Enable CORS for all origins (adjust for production)
-<IfModule mod_headers.c>
-    Header always set Access-Control-Allow-Origin "*"
-    Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
-    Header always set Access-Control-Allow-Headers "Authorization, Content-Type, X-WP-Nonce, X-Requested-With"
-    Header always set Access-Control-Allow-Credentials "true"
-</IfModule>
+# CORS headers are now handled by WordPress mu-plugin
+# <IfModule mod_headers.c>
+#     Header always set Access-Control-Allow-Origin "*"
+#     Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+#     Header always set Access-Control-Allow-Headers "Authorization, Content-Type, X-WP-Nonce, X-Requested-With"
+#     Header always set Access-Control-Allow-Credentials "true"
+# </IfModule>
 
 # Handle OPTIONS requests for CORS preflight
 <IfModule mod_rewrite.c>
