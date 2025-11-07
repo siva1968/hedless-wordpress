@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JWT Authentication Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        .test-section { background: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        .result { background: #d4edda; border: 1px solid #c3e6cb; padding: 10px; margin: 10px 0; border-radius: 3px; }
+        .error { background: #f8d7da; border: 1px solid #f5c6cb; }
+        button { background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #005a87; }
+        code { background: #e9ecef; padding: 2px 4px; border-radius: 2px; }
+        .token-display { word-break: break-all; font-family: monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>🔐 JWT Authentication Test</h1>
+    
+    <div class="test-section">
+        <h3>Step 1: Get JWT Token</h3>
+        <p>Test your WordPress credentials to get a JWT token:</p>
+        <input type="text" id="username" placeholder="Username" style="width: 200px; padding: 5px; margin: 5px;">
+        <input type="password" id="password" placeholder="Password" style="width: 200px; padding: 5px; margin: 5px;">
+        <button onclick="getToken()">Get JWT Token</button>
+        <div id="tokenResult" class="result" style="display: none;"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Step 2: Test Protected Endpoint</h3>
+        <p>Use the token to access a protected endpoint:</p>
+        <button onclick="testProtectedEndpoint()" id="testBtn" disabled>Test Protected Endpoint</button>
+        <div id="testResult" class="result" style="display: none;"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>API Endpoints for Testing:</h3>
+        <ul>
+            <li><strong>Get Token:</strong> <code>POST /hedless/wp-json/jwt-auth/v1/token</code></li>
+            <li><strong>Validate Token:</strong> <code>POST /hedless/wp-json/jwt-auth/v1/token/validate</code></li>
+            <li><strong>Protected Users:</strong> <code>GET /hedless/wp-json/wp/v2/users</code></li>
+            <li><strong>WooCommerce Orders:</strong> <code>GET /hedless/wp-json/wc/v3/orders</code></li>
+        </ul>
+    </div>
+
+    <script>
+        let currentToken = '';
+        
+        async function getToken() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            if (!username || !password) {
+                alert('Please enter username and password');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/hedless/wp-json/jwt-auth/v1/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                });
+                
+                const result = await response.json();
+                const resultDiv = document.getElementById('tokenResult');
+                
+                if (response.ok) {
+                    currentToken = result.token;
+                    resultDiv.className = 'result';
+                    resultDiv.innerHTML = `
+                        <h4>✅ Success! JWT Token Generated:</h4>
+                        <div class="token-display">${result.token}</div>
+                        <p><strong>User:</strong> ${result.user_display_name}</p>
+                        <p><strong>Email:</strong> ${result.user_email}</p>
+                    `;
+                    document.getElementById('testBtn').disabled = false;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `<h4>❌ Error:</h4><p>${result.message}</p>`;
+                }
+                
+                resultDiv.style.display = 'block';
+            } catch (error) {
+                document.getElementById('tokenResult').innerHTML = `<h4>❌ Network Error:</h4><p>${error.message}</p>`;
+                document.getElementById('tokenResult').className = 'result error';
+                document.getElementById('tokenResult').style.display = 'block';
+            }
+        }
+        
+        async function testProtectedEndpoint() {
+            if (!currentToken) {
+                alert('Please get a token first');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/hedless/wp-json/wp/v2/users', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': 'Bearer ' + currentToken,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                const resultDiv = document.getElementById('testResult');
+                
+                if (response.ok) {
+                    resultDiv.className = 'result';
+                    resultDiv.innerHTML = `
+                        <h4>✅ Protected Endpoint Access Successful!</h4>
+                        <p>Found ${result.length} users in the system.</p>
+                        <p><strong>First user:</strong> ${result[0] ? result[0].name : 'No users found'}</p>
+                    `;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `<h4>❌ Access Denied:</h4><p>${result.message}</p>`;
+                }
+                
+                resultDiv.style.display = 'block';
+            } catch (error) {
+                document.getElementById('testResult').innerHTML = `<h4>❌ Network Error:</h4><p>${error.message}</p>`;
+                document.getElementById('testResult').className = 'result error';
+                document.getElementById('testResult').style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

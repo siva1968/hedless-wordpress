@@ -96,7 +96,7 @@ define( 'WP_DEBUG_DISPLAY', false );
 define( 'WP_REST_API_DEBUG', true );
 
 // JWT Authentication Secret Key (change this to a random string)
-define( 'JWT_AUTH_SECRET_KEY', 'your-super-secret-jwt-key-change-this-to-something-random' );
+define( 'JWT_AUTH_SECRET_KEY', 'HeAdLeSs_WoRdPrEsS_2025_SuPeR_SeCrEt_KeY_ChAnGe_ThIs_FoR_PrOdUcTiOn_987654321' );
 define( 'JWT_AUTH_CORS_ENABLE', true );
 
 // WooCommerce specific settings for headless
