@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Location-Based Products for WooCommerce
  * Plugin URI: https://github.com/siva1968/hedless-wordpress
- * Description: Advanced location-based product management system for furniture e-commerce. Supports location detection, area-specific product availability, and location-based inventory.
- * Version: 1.0.0
+ * Description: Advanced location-based product management system for furniture e-commerce. Supports location detection, area-specific product availability, location-based inventory, GST calculation, and location-based sliders.
+ * Version: 1.1.0
  * Author: Siva
  * Requires at least: 6.0
  * Requires PHP: 7.4
@@ -32,7 +32,7 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
 
 define('LBP_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('LBP_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('LBP_VERSION', '1.0.0');
+define('LBP_VERSION', '1.1.0');
 
 class LocationBasedProducts {
     
@@ -210,6 +210,39 @@ class LocationBasedProducts {
                     <label for="lbp_is_active"><?php _e('This location is active and available for orders', 'location-based-products'); ?></label>
                 </td>
             </tr>
+            <tr>
+                <td colspan="2"><hr><h3><?php _e('GST / Tax Settings', 'location-based-products'); ?></h3></td>
+            </tr>
+            <tr>
+                <th><label for="lbp_gst_rate"><?php _e('GST Rate (%)', 'location-based-products'); ?></label></th>
+                <td>
+                    <select id="lbp_gst_rate" name="lbp_gst_rate" class="small-text">
+                        <option value="0" <?php selected(get_post_meta($post->ID, '_lbp_gst_rate', true), '0'); ?>>0% (Exempt)</option>
+                        <option value="5" <?php selected(get_post_meta($post->ID, '_lbp_gst_rate', true), '5'); ?>>5%</option>
+                        <option value="12" <?php selected(get_post_meta($post->ID, '_lbp_gst_rate', true), '12'); ?>>12%</option>
+                        <option value="18" <?php selected(get_post_meta($post->ID, '_lbp_gst_rate', true) ?: '18', '18'); ?>>18% (Default)</option>
+                        <option value="28" <?php selected(get_post_meta($post->ID, '_lbp_gst_rate', true), '28'); ?>>28% (Luxury)</option>
+                    </select>
+                    <p class="description"><?php _e('Default GST rate for products in this location', 'location-based-products'); ?></p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="lbp_gst_type"><?php _e('GST Type', 'location-based-products'); ?></label></th>
+                <td>
+                    <select id="lbp_gst_type" name="lbp_gst_type" class="regular-text">
+                        <option value="intrastate" <?php selected(get_post_meta($post->ID, '_lbp_gst_type', true) ?: 'intrastate', 'intrastate'); ?>>Intrastate (CGST + SGST)</option>
+                        <option value="interstate" <?php selected(get_post_meta($post->ID, '_lbp_gst_type', true), 'interstate'); ?>>Interstate (IGST)</option>
+                    </select>
+                    <p class="description"><?php _e('Intrastate: Within same state (CGST+SGST). Interstate: Between states (IGST)', 'location-based-products'); ?></p>
+                </td>
+            </tr>
+            <tr>
+                <th><label for="lbp_default_hsn_code"><?php _e('Default HSN Code', 'location-based-products'); ?></label></th>
+                <td>
+                    <input type="text" id="lbp_default_hsn_code" name="lbp_default_hsn_code" value="<?php echo esc_attr(get_post_meta($post->ID, '_lbp_default_hsn_code', true) ?: '9403'); ?>" class="regular-text" placeholder="9403" />
+                    <p class="description"><?php _e('Default HSN code for furniture products (e.g., 9403 for furniture)', 'location-based-products'); ?></p>
+                </td>
+            </tr>
         </table>
         <?php
     }
@@ -278,14 +311,14 @@ class LocationBasedProducts {
         $post_type = get_post_type($post_id);
         
         if ($post_type === 'lbp_location') {
-            $fields = ['latitude', 'longitude', 'address', 'city', 'state', 'country', 'postal_codes', 'delivery_radius', 'priority'];
-            
+            $fields = ['latitude', 'longitude', 'address', 'city', 'state', 'country', 'postal_codes', 'delivery_radius', 'priority', 'gst_rate', 'gst_type', 'default_hsn_code'];
+
             foreach ($fields as $field) {
                 if (isset($_POST["lbp_$field"])) {
                     update_post_meta($post_id, "_lbp_$field", sanitize_text_field($_POST["lbp_$field"]));
                 }
             }
-            
+
             update_post_meta($post_id, '_lbp_is_active', isset($_POST['lbp_is_active']) ? '1' : '0');
         }
         
@@ -383,6 +416,8 @@ require_once LBP_PLUGIN_PATH . 'includes/woocommerce-compatibility.php';
 require_once LBP_PLUGIN_PATH . 'includes/product-integration.php';
 require_once LBP_PLUGIN_PATH . 'includes/rest-api.php';
 require_once LBP_PLUGIN_PATH . 'includes/admin.php';
+require_once LBP_PLUGIN_PATH . 'includes/gst-integration.php';
+require_once LBP_PLUGIN_PATH . 'includes/slider-management.php';
 
 // Initialize the plugin
 new LocationBasedProducts();
