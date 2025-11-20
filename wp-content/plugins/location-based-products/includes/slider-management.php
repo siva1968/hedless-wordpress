@@ -17,12 +17,27 @@ if (!defined('ABSPATH')) {
 
 class LBP_Slider_Management {
 
+    /**
+     * Cache expiration time in seconds
+     * Default: 1 hour (3600 seconds)
+     */
+    private $cache_expiration = 3600;
+
     public function __construct() {
         add_action('init', [$this, 'register_slider_post_type']);
         add_action('add_meta_boxes', [$this, 'add_slider_meta_boxes']);
         add_action('save_post_lbp_slider', [$this, 'save_slider_meta'], 10, 2);
         add_action('rest_api_init', [$this, 'register_slider_endpoints']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
+
+        // Cache invalidation hooks (HIGH-07)
+        add_action('save_post_lbp_slider', [$this, 'invalidate_slider_cache']);
+        add_action('delete_post', [$this, 'invalidate_slider_cache']);
+        add_action('wp_trash_post', [$this, 'invalidate_slider_cache']);
+        add_action('untrashed_post', [$this, 'invalidate_slider_cache']);
+
+        // Allow cache expiration to be filtered
+        $this->cache_expiration = apply_filters('lbp_slider_cache_expiration', $this->cache_expiration);
     }
 
     /**
@@ -465,6 +480,15 @@ class LBP_Slider_Management {
             $location_id = $location ? $location->ID : null;
         }
 
+        // Try to get cached result (HIGH-07)
+        $cache_key = $this->get_slider_cache_key($location_id, $active_only, $limit);
+        $cached_data = get_transient($cache_key);
+
+        if ($cached_data !== false) {
+            // Return cached data
+            return rest_ensure_response($cached_data);
+        }
+
         // Build query args
         $args = [
             'post_type' => 'lbp_slider',
@@ -486,53 +510,106 @@ class LBP_Slider_Management {
             ];
         }
 
+        // Filter by schedule at database level (HIGH-06 optimization)
+        $current_time = current_time('mysql');
+
+        // Schedule filter: start date check
+        $meta_query[] = [
+            'relation' => 'OR',
+            [
+                'key' => '_lbp_slider_start_date',
+                'compare' => 'NOT EXISTS'
+            ],
+            [
+                'key' => '_lbp_slider_start_date',
+                'value' => '',
+                'compare' => '='
+            ],
+            [
+                'key' => '_lbp_slider_start_date',
+                'value' => $current_time,
+                'compare' => '<=',
+                'type' => 'DATETIME'
+            ]
+        ];
+
+        // Schedule filter: end date check
+        $meta_query[] = [
+            'relation' => 'OR',
+            [
+                'key' => '_lbp_slider_end_date',
+                'compare' => 'NOT EXISTS'
+            ],
+            [
+                'key' => '_lbp_slider_end_date',
+                'value' => '',
+                'compare' => '='
+            ],
+            [
+                'key' => '_lbp_slider_end_date',
+                'value' => $current_time,
+                'compare' => '>=',
+                'type' => 'DATETIME'
+            ]
+        ];
+
         // Filter by location
         if ($location_id) {
-            $meta_query['relation'] = 'OR';
-            $meta_query[] = [
-                'key' => '_lbp_slider_type',
-                'value' => 'all',
-                'compare' => '='
-            ];
-            $meta_query[] = [
-                'relation' => 'AND',
+            $location_filter = [
+                'relation' => 'OR',
                 [
                     'key' => '_lbp_slider_type',
-                    'value' => 'specific',
+                    'value' => 'all',
                     'compare' => '='
                 ],
                 [
-                    'key' => '_lbp_slider_locations',
-                    // Use more specific pattern to match exact array element
-                    // Pattern: i:123; where 123 is the location ID
-                    'value' => sprintf('i:%d;', intval($location_id)),
-                    'compare' => 'LIKE'
+                    'relation' => 'AND',
+                    [
+                        'key' => '_lbp_slider_type',
+                        'value' => 'specific',
+                        'compare' => '='
+                    ],
+                    [
+                        'key' => '_lbp_slider_locations',
+                        // Use more specific pattern to match exact array element
+                        // Pattern: i:123; where 123 is the location ID
+                        'value' => sprintf('i:%d;', intval($location_id)),
+                        'compare' => 'LIKE'
+                    ]
                 ]
             ];
+            $meta_query[] = $location_filter;
         }
 
         if (!empty($meta_query)) {
+            // Set overall relation to AND for all filters
+            if (count($meta_query) > 1) {
+                $meta_query['relation'] = 'AND';
+            }
             $args['meta_query'] = $meta_query;
         }
 
         $sliders = get_posts($args);
         $formatted_sliders = [];
 
+        // No need to check schedule in PHP anymore - database does it
         foreach ($sliders as $slider) {
-            // Check schedule
-            if (!$this->is_slider_scheduled($slider->ID)) {
-                continue;
-            }
-
             $formatted_sliders[] = $this->format_slider_data($slider);
         }
 
-        return rest_ensure_response([
+        // Prepare response
+        $response_data = [
             'success' => true,
             'sliders' => $formatted_sliders,
             'total' => count($formatted_sliders),
-            'location_id' => $location_id
-        ]);
+            'location_id' => $location_id,
+            'cached' => false
+        ];
+
+        // Cache the result (HIGH-07)
+        set_transient($cache_key, $response_data, $this->cache_expiration);
+
+        return rest_ensure_response($response_data);
     }
 
     /**
@@ -667,6 +744,66 @@ class LBP_Slider_Management {
             </script>
             <?php
         }
+    }
+
+    /**
+     * Generate cache key for slider queries (HIGH-07)
+     *
+     * @param int|null $location_id Location ID
+     * @param bool $active_only Active only filter
+     * @param int $limit Result limit
+     * @return string Cache key
+     */
+    private function get_slider_cache_key($location_id, $active_only, $limit) {
+        // Include current time in cache key to handle scheduled sliders
+        // Round to nearest minute to balance cache efficiency with schedule accuracy
+        $time_bucket = floor(time() / 60) * 60;
+
+        $key_parts = [
+            'lbp_sliders',
+            'loc_' . ($location_id ?: 'all'),
+            'active_' . ($active_only ? '1' : '0'),
+            'limit_' . $limit,
+            'time_' . $time_bucket
+        ];
+
+        return implode('_', $key_parts);
+    }
+
+    /**
+     * Invalidate all slider caches (HIGH-07)
+     *
+     * Called when sliders are created, updated, or deleted
+     *
+     * @param int $post_id Post ID
+     */
+    public function invalidate_slider_cache($post_id = null) {
+        // Check if this is a slider post type
+        if ($post_id && get_post_type($post_id) !== 'lbp_slider') {
+            return;
+        }
+
+        // Delete all slider cache transients
+        // We use a wildcard-style deletion by storing all cache keys
+        global $wpdb;
+
+        // Delete all transients starting with 'lbp_sliders_'
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options}
+                WHERE option_name LIKE %s
+                OR option_name LIKE %s",
+                '_transient_lbp_sliders_%',
+                '_transient_timeout_lbp_sliders_%'
+            )
+        );
+
+        // Also clear any object cache if enabled
+        if (function_exists('wp_cache_flush_group')) {
+            wp_cache_flush_group('lbp_sliders');
+        }
+
+        do_action('lbp_slider_cache_invalidated', $post_id);
     }
 }
 

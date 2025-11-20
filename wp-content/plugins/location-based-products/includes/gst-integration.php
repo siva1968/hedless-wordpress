@@ -751,15 +751,30 @@ class LBP_GST_Integration {
             $order->update_meta_data('_lbp_igst_rate', $gst_data['igst_rate']);
         }
 
-        // Store customer GSTIN if provided
+        // Store customer GSTIN if provided (HIGH-10)
+        $customer_gstin = '';
+        $is_b2b_transaction = false;
+        $is_rcm_applicable = false;
+
         if (!empty($data['billing_gstin'])) {
-            $order->update_meta_data('_billing_gstin', sanitize_text_field($data['billing_gstin']));
+            $customer_gstin = sanitize_text_field($data['billing_gstin']);
+            $order->update_meta_data('_billing_gstin', $customer_gstin);
+            $is_b2b_transaction = true;
+            $order->update_meta_data('_lbp_is_b2b', true);
+
+            // Check if RCM (Reverse Charge Mechanism) applies
+            $is_rcm_applicable = $this->is_rcm_applicable($order, $customer_gstin);
+            $order->update_meta_data('_lbp_rcm_applicable', $is_rcm_applicable);
+        } else {
+            $order->update_meta_data('_lbp_is_b2b', false);
+            $order->update_meta_data('_lbp_rcm_applicable', false);
         }
 
         // Calculate and store GST breakdown for each item
         $tax_breakdown = [];
         $total_taxable_value = 0;
         $total_gst_amount = 0;
+        $rcm_items = [];
 
         foreach ($order->get_items() as $item_id => $item) {
             $product_id = $item->get_product_id();
@@ -769,9 +784,13 @@ class LBP_GST_Integration {
             // Get product-specific GST or use location default
             $product_gst_rate = get_post_meta($product_id, '_lbp_gst_rate', true);
             $product_hsn = get_post_meta($product_id, '_lbp_hsn_code', true);
+            $product_rcm = get_post_meta($product_id, '_lbp_rcm_applicable', true); // HIGH-10
 
             $item_gst_rate = $product_gst_rate !== '' ? floatval($product_gst_rate) : $gst_data['gst_rate'];
             $item_hsn = $product_hsn ?: $gst_data['hsn_code'];
+
+            // Check if RCM applies to this specific item (HIGH-10)
+            $item_rcm = ($is_rcm_applicable || $product_rcm === 'yes') && $is_b2b_transaction;
 
             $tax_amount = ($subtotal * $item_gst_rate) / 100;
             $total_taxable_value += $subtotal;
@@ -783,8 +802,14 @@ class LBP_GST_Integration {
                 'hsn_code' => $item_hsn,
                 'quantity' => $quantity,
                 'taxable_value' => round($subtotal, 2),
-                'gst_rate' => $item_gst_rate
+                'gst_rate' => $item_gst_rate,
+                'rcm_applicable' => $item_rcm // HIGH-10
             ];
+
+            // Track RCM items
+            if ($item_rcm) {
+                $rcm_items[] = $item->get_name();
+            }
 
             // Add split tax amounts
             if ($gst_data['gst_type'] === 'intrastate') {
@@ -812,15 +837,72 @@ class LBP_GST_Integration {
         $order->update_meta_data('_lbp_total_taxable_value', round($total_taxable_value, 2));
         $order->update_meta_data('_lbp_total_gst_amount', round($total_gst_amount, 2));
 
+        // Store RCM items list (HIGH-10)
+        if (!empty($rcm_items)) {
+            $order->update_meta_data('_lbp_rcm_items', $rcm_items);
+        }
+
         // Add order note for GST
+        $transaction_type = $is_b2b_transaction ? 'B2B' : 'B2C';
         $gst_note = sprintf(
-            __('GST Details: %s (%s) | Total Taxable: ₹%s | GST: ₹%s', 'location-based-products'),
+            __('GST Details (%s): %s (%s) | Total Taxable: ₹%s | GST: ₹%s', 'location-based-products'),
+            $transaction_type,
             $gst_data['gst_type'] === 'intrastate' ? 'Intrastate (CGST+SGST)' : 'Interstate (IGST)',
             $gst_data['gst_rate'] . '%',
             number_format($total_taxable_value, 2),
             number_format($total_gst_amount, 2)
         );
+
+        // Add RCM note if applicable (HIGH-10)
+        if (!empty($rcm_items)) {
+            $rcm_note = sprintf(
+                __('⚠️ RCM Applicable: Tax liability on buyer for %d item(s): %s', 'location-based-products'),
+                count($rcm_items),
+                implode(', ', $rcm_items)
+            );
+            $gst_note .= ' | ' . $rcm_note;
+        }
+
         $order->add_order_note($gst_note);
+    }
+
+    /**
+     * Check if Reverse Charge Mechanism applies (HIGH-10)
+     *
+     * RCM applies when:
+     * - Transaction is B2B (customer has GSTIN)
+     * - Supplier is selling specific categories (legal, advocate, GTA, etc.)
+     * - Or manually marked at product level
+     *
+     * @param WC_Order $order Order object
+     * @param string $customer_gstin Customer GSTIN
+     * @return bool
+     */
+    private function is_rcm_applicable($order, $customer_gstin) {
+        // RCM requires valid customer GSTIN
+        if (empty($customer_gstin) || strlen($customer_gstin) !== 15) {
+            return false;
+        }
+
+        // Check if location/store has RCM enabled globally
+        $location_id = $this->get_current_location_id();
+        if ($location_id) {
+            $location_rcm = get_post_meta($location_id, '_lbp_enable_rcm', true);
+            if ($location_rcm === 'yes') {
+                return true;
+            }
+        }
+
+        // Check if any product in the order has RCM applicable
+        foreach ($order->get_items() as $item) {
+            $product_id = $item->get_product_id();
+            $product_rcm = get_post_meta($product_id, '_lbp_rcm_applicable', true);
+            if ($product_rcm === 'yes') {
+                return true;
+            }
+        }
+
+        return apply_filters('lbp_is_rcm_applicable', false, $order, $customer_gstin);
     }
 
     /**

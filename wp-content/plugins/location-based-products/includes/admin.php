@@ -442,15 +442,17 @@ class LBP_Admin {
             update_option('lbp_default_location_detection', sanitize_text_field($_POST['default_location_detection']));
             update_option('lbp_fallback_behavior', sanitize_text_field($_POST['fallback_behavior']));
             update_option('lbp_enable_geolocation', isset($_POST['enable_geolocation']));
+            update_option('lbp_geolocation_provider', sanitize_text_field($_POST['geolocation_provider']));
             update_option('lbp_geolocation_api_key', sanitize_text_field($_POST['geolocation_api_key']));
             update_option('lbp_cache_duration', intval($_POST['cache_duration']));
-            
+
             echo '<div class="notice notice-success"><p>Settings saved!</p></div>';
         }
-        
+
         $default_detection = get_option('lbp_default_location_detection', 'ip');
         $fallback_behavior = get_option('lbp_fallback_behavior', 'show_all');
         $enable_geolocation = get_option('lbp_enable_geolocation', true);
+        $geolocation_provider = get_option('lbp_geolocation_provider', 'ip-api');
         $api_key = get_option('lbp_geolocation_api_key', '');
         $cache_duration = get_option('lbp_cache_duration', 3600);
         ?>
@@ -492,10 +494,36 @@ class LBP_Admin {
                         </td>
                     </tr>
                     <tr>
+                        <th scope="row">IP Geolocation Provider (HIGH-08)</th>
+                        <td>
+                            <select name="geolocation_provider">
+                                <option value="ip-api" <?php selected($geolocation_provider, 'ip-api'); ?>>
+                                    IP-API (Free, 45 req/min, no API key)
+                                </option>
+                                <option value="ipapi" <?php selected($geolocation_provider, 'ipapi'); ?>>
+                                    ipapi.co (Free: 1k/day, Paid with API key)
+                                </option>
+                                <option value="ipstack" <?php selected($geolocation_provider, 'ipstack'); ?>>
+                                    IPStack (Requires API key, 10k/month free)
+                                </option>
+                                <option value="ipinfo" <?php selected($geolocation_provider, 'ipinfo'); ?>>
+                                    IPInfo.io (50k/month free, API key optional)
+                                </option>
+                            </select>
+                            <p class="description">
+                                Select IP geolocation service provider. Free providers have rate limits.<br>
+                                <strong>Fallback:</strong> If primary fails, automatically tries ip-api and ipapi.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
                         <th scope="row">Geolocation API Key</th>
                         <td>
-                            <input type="text" name="geolocation_api_key" value="<?php echo esc_attr($api_key); ?>" class="regular-text">
-                            <p class="description">API key for enhanced geolocation services (optional)</p>
+                            <input type="text" name="geolocation_api_key" value="<?php echo esc_attr($api_key); ?>" class="regular-text" placeholder="Optional for most providers">
+                            <p class="description">
+                                Enter API key if using paid tier. Required for IPStack, optional for others.<br>
+                                <strong>Caching:</strong> IP lookups are cached for 1 hour to reduce API calls.
+                            </p>
                         </td>
                     </tr>
                     <tr>

@@ -136,6 +136,14 @@ class LBP_Product_Integration {
             ]
         ]);
 
+        // HIGH-10: Reverse Charge Mechanism
+        woocommerce_wp_checkbox([
+            'id' => '_lbp_rcm_applicable',
+            'label' => __('Reverse Charge Mechanism (RCM)', 'location-based-products'),
+            'description' => __('Check if RCM applies to this product in B2B transactions. Tax liability will be on the buyer (recipient) instead of seller. Applicable for specific categories like legal services, GTA, etc.', 'location-based-products'),
+            'desc_tip' => true
+        ]);
+
         echo '</div>';
         
         // Location-specific pricing table
@@ -275,10 +283,11 @@ class LBP_Product_Integration {
                 update_post_meta($post_id, '_lbp_hsn_code', $hsn_code);
             }
         }
-        
+
         // Save checkboxes
         update_post_meta($post_id, '_lbp_location_pricing', isset($_POST['_lbp_location_pricing']) ? 'yes' : 'no');
         update_post_meta($post_id, '_lbp_location_stock', isset($_POST['_lbp_location_stock']) ? 'yes' : 'no');
+        update_post_meta($post_id, '_lbp_rcm_applicable', isset($_POST['_lbp_rcm_applicable']) ? 'yes' : 'no'); // HIGH-10
         
         // Save selected locations
         if (isset($_POST['_lbp_selected_locations']) && is_array($_POST['_lbp_selected_locations'])) {

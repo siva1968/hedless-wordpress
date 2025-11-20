@@ -106,50 +106,252 @@ class LBP_Helpers {
     }
     
     public static function find_location_by_ip($ip) {
-        // Simple IP geolocation - you can integrate with services like MaxMind, IPStack, etc.
-        // For now, we'll use a basic approach with HTTP API
-        
-        if ($ip === '127.0.0.1' || $ip === 'localhost') {
+        // HIGH-08: Enhanced IP geolocation with multiple providers and caching
+
+        if ($ip === '127.0.0.1' || $ip === 'localhost' || empty($ip)) {
             return self::get_default_location();
         }
-        
-        $response = wp_remote_get("http://ip-api.com/json/{$ip}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon");
-        
-        if (is_wp_error($response)) {
+
+        // Check cache first (1 hour expiry)
+        $cache_key = 'lbp_ip_geo_' . md5($ip);
+        $cached_data = get_transient($cache_key);
+
+        if ($cached_data !== false) {
+            // Cached geolocation data found
+            return self::match_location_from_geodata($cached_data);
+        }
+
+        // Get geolocation data from configured provider
+        $geodata = self::get_ip_geolocation_data($ip);
+
+        if (!$geodata) {
+            return self::get_default_location();
+        }
+
+        // Cache the geodata for 1 hour
+        set_transient($cache_key, $geodata, 3600);
+
+        // Match location using geodata
+        return self::match_location_from_geodata($geodata);
+    }
+
+    /**
+     * Get IP geolocation data from configured provider (HIGH-08)
+     *
+     * @param string $ip IP address
+     * @return array|null Geolocation data
+     */
+    private static function get_ip_geolocation_data($ip) {
+        // Get configured provider and API key
+        $provider = get_option('lbp_geolocation_provider', 'ip-api');
+        $api_key = get_option('lbp_geolocation_api_key', '');
+
+        // Try primary provider
+        $geodata = self::fetch_from_provider($ip, $provider, $api_key);
+
+        // If failed, try fallback providers
+        if (!$geodata) {
+            $fallback_providers = ['ip-api', 'ipapi'];
+            foreach ($fallback_providers as $fallback) {
+                if ($fallback !== $provider) {
+                    $geodata = self::fetch_from_provider($ip, $fallback, '');
+                    if ($geodata) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        return $geodata;
+    }
+
+    /**
+     * Fetch geolocation data from specific provider (HIGH-08)
+     *
+     * @param string $ip IP address
+     * @param string $provider Provider name
+     * @param string $api_key API key (if required)
+     * @return array|null Geolocation data
+     */
+    private static function fetch_from_provider($ip, $provider, $api_key = '') {
+        $url = '';
+        $timeout = 3; // 3 second timeout
+
+        switch ($provider) {
+            case 'ip-api':
+                // Free, no API key required, 45 requests/minute
+                $url = "http://ip-api.com/json/{$ip}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon";
+                break;
+
+            case 'ipapi':
+                // ipapi.co - Free tier: 1000 requests/day, no API key
+                // Paid tier: requires API key
+                if ($api_key) {
+                    $url = "https://ipapi.co/{$ip}/json/?key={$api_key}";
+                } else {
+                    $url = "https://ipapi.co/{$ip}/json/";
+                }
+                break;
+
+            case 'ipstack':
+                // IPStack - requires API key (free tier: 10,000 requests/month)
+                if ($api_key) {
+                    $url = "http://api.ipstack.com/{$ip}?access_key={$api_key}";
+                }
+                break;
+
+            case 'ipinfo':
+                // IPInfo.io - 50,000 requests/month free
+                if ($api_key) {
+                    $url = "https://ipinfo.io/{$ip}/json?token={$api_key}";
+                } else {
+                    $url = "https://ipinfo.io/{$ip}/json";
+                }
+                break;
+
+            default:
+                return null;
+        }
+
+        if (empty($url)) {
             return null;
         }
-        
+
+        $response = wp_remote_get($url, ['timeout' => $timeout]);
+
+        if (is_wp_error($response)) {
+            error_log('LBP Geolocation Error (' . $provider . '): ' . $response->get_error_message());
+            return null;
+        }
+
         $data = json_decode(wp_remote_retrieve_body($response), true);
-        
-        if ($data && $data['status'] === 'success') {
-            // First try to match by coordinates
-            if (isset($data['lat']) && isset($data['lon'])) {
-                $location = self::find_location_by_coordinates($data['lat'], $data['lon']);
-                if ($location) {
-                    return $location;
+
+        // Normalize data from different providers
+        return self::normalize_geodata($data, $provider);
+    }
+
+    /**
+     * Normalize geolocation data from different providers (HIGH-08)
+     *
+     * @param array $data Raw data from provider
+     * @param string $provider Provider name
+     * @return array|null Normalized data
+     */
+    private static function normalize_geodata($data, $provider) {
+        if (!$data) {
+            return null;
+        }
+
+        $normalized = [];
+
+        switch ($provider) {
+            case 'ip-api':
+                if (!isset($data['status']) || $data['status'] !== 'success') {
+                    return null;
                 }
-            }
-            
-            // Then try postal code
-            if (isset($data['zip'])) {
-                $location = self::find_location_by_postal_code($data['zip']);
-                if ($location) {
-                    return $location;
+                $normalized = [
+                    'country' => $data['country'] ?? '',
+                    'country_code' => $data['countryCode'] ?? '',
+                    'region' => $data['regionName'] ?? '',
+                    'city' => $data['city'] ?? '',
+                    'zip' => $data['zip'] ?? '',
+                    'lat' => $data['lat'] ?? null,
+                    'lon' => $data['lon'] ?? null
+                ];
+                break;
+
+            case 'ipapi':
+                if (isset($data['error'])) {
+                    return null;
                 }
-            }
-            
-            // Finally, try to match by city/region
-            $city = isset($data['city']) ? $data['city'] : '';
-            $region = isset($data['regionName']) ? $data['regionName'] : '';
-            
-            if ($city || $region) {
-                $location = self::find_location_by_city($city, $region);
-                if ($location) {
-                    return $location;
+                $normalized = [
+                    'country' => $data['country_name'] ?? '',
+                    'country_code' => $data['country_code'] ?? '',
+                    'region' => $data['region'] ?? '',
+                    'city' => $data['city'] ?? '',
+                    'zip' => $data['postal'] ?? '',
+                    'lat' => $data['latitude'] ?? null,
+                    'lon' => $data['longitude'] ?? null
+                ];
+                break;
+
+            case 'ipstack':
+                if (isset($data['error'])) {
+                    return null;
                 }
+                $normalized = [
+                    'country' => $data['country_name'] ?? '',
+                    'country_code' => $data['country_code'] ?? '',
+                    'region' => $data['region_name'] ?? '',
+                    'city' => $data['city'] ?? '',
+                    'zip' => $data['zip'] ?? '',
+                    'lat' => $data['latitude'] ?? null,
+                    'lon' => $data['longitude'] ?? null
+                ];
+                break;
+
+            case 'ipinfo':
+                if (isset($data['bogon'])) {
+                    return null;
+                }
+                // IPInfo.io format: "loc": "lat,lon"
+                $loc = isset($data['loc']) ? explode(',', $data['loc']) : [null, null];
+                $normalized = [
+                    'country' => $data['country'] ?? '',
+                    'country_code' => $data['country'] ?? '',
+                    'region' => $data['region'] ?? '',
+                    'city' => $data['city'] ?? '',
+                    'zip' => $data['postal'] ?? '',
+                    'lat' => isset($loc[0]) ? floatval($loc[0]) : null,
+                    'lon' => isset($loc[1]) ? floatval($loc[1]) : null
+                ];
+                break;
+
+            default:
+                return null;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Match location from normalized geodata (HIGH-08)
+     *
+     * @param array $geodata Normalized geolocation data
+     * @return WP_Post|null Location post object
+     */
+    private static function match_location_from_geodata($geodata) {
+        if (!$geodata) {
+            return null;
+        }
+
+        // Priority 1: Match by coordinates
+        if (isset($geodata['lat']) && isset($geodata['lon']) && $geodata['lat'] && $geodata['lon']) {
+            $location = self::find_location_by_coordinates($geodata['lat'], $geodata['lon']);
+            if ($location) {
+                return $location;
             }
         }
-        
+
+        // Priority 2: Match by postal code
+        if (!empty($geodata['zip'])) {
+            $location = self::find_location_by_postal_code($geodata['zip']);
+            if ($location) {
+                return $location;
+            }
+        }
+
+        // Priority 3: Match by city/region
+        $city = $geodata['city'] ?? '';
+        $region = $geodata['region'] ?? '';
+
+        if ($city || $region) {
+            $location = self::find_location_by_city($city, $region);
+            if ($location) {
+                return $location;
+            }
+        }
+
         return null;
     }
     
