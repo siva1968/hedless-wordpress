@@ -328,6 +328,70 @@ class LBP_Slider_Management {
     }
 
     /**
+     * Check rate limit for API requests
+     *
+     * @param WP_REST_Request $request Request object
+     * @return bool|WP_Error True if within limit, WP_Error if exceeded
+     */
+    private function check_rate_limit($request) {
+        // Get client IP
+        $ip = $this->get_client_ip();
+        $endpoint = $request->get_route();
+        $transient_key = 'lbp_rate_limit_' . md5($ip . $endpoint);
+
+        $requests = get_transient($transient_key);
+        if ($requests === false) {
+            set_transient($transient_key, 1, 60); // 1 request in last minute
+            return true;
+        }
+
+        // Max 60 requests per minute per endpoint
+        if ($requests >= 60) {
+            return new WP_Error(
+                'rate_limit_exceeded',
+                __('Too many requests. Please try again later.', 'location-based-products'),
+                ['status' => 429]
+            );
+        }
+
+        set_transient($transient_key, $requests + 1, 60);
+        return true;
+    }
+
+    /**
+     * Get client IP address
+     *
+     * @return string Client IP address
+     */
+    private function get_client_ip() {
+        $ip_keys = ['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_CLIENT_IP', 'REMOTE_ADDR'];
+        foreach ($ip_keys as $key) {
+            if (!empty($_SERVER[$key])) {
+                $ip = $_SERVER[$key];
+                if (strpos($ip, ',') !== false) {
+                    $ip = explode(',', $ip)[0];
+                }
+                return trim($ip);
+            }
+        }
+        return '127.0.0.1';
+    }
+
+    /**
+     * Permission callback for public endpoints with rate limiting
+     *
+     * @param WP_REST_Request $request Request object
+     * @return bool|WP_Error
+     */
+    public function public_permission_callback($request) {
+        $rate_check = $this->check_rate_limit($request);
+        if (is_wp_error($rate_check)) {
+            return $rate_check;
+        }
+        return true;
+    }
+
+    /**
      * Register REST API endpoints for sliders
      */
     public function register_slider_endpoints() {
@@ -337,7 +401,7 @@ class LBP_Slider_Management {
         register_rest_route($namespace, '/sliders', [
             'methods' => 'GET',
             'callback' => [$this, 'get_sliders'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [$this, 'public_permission_callback'],
             'args' => [
                 'location_id' => [
                     'type' => 'integer',
@@ -364,7 +428,7 @@ class LBP_Slider_Management {
         register_rest_route($namespace, '/sliders/(?P<id>\d+)', [
             'methods' => 'GET',
             'callback' => [$this, 'get_single_slider'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [$this, 'public_permission_callback'],
             'args' => [
                 'id' => [
                     'required' => true,
@@ -377,7 +441,7 @@ class LBP_Slider_Management {
         register_rest_route($namespace, '/sliders/active', [
             'methods' => 'GET',
             'callback' => [$this, 'get_active_sliders'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [$this, 'public_permission_callback'],
             'args' => [
                 'location_id' => [
                     'type' => 'integer'
@@ -439,7 +503,9 @@ class LBP_Slider_Management {
                 ],
                 [
                     'key' => '_lbp_slider_locations',
-                    'value' => serialize(strval($location_id)),
+                    // Use more specific pattern to match exact array element
+                    // Pattern: i:123; where 123 is the location ID
+                    'value' => sprintf('i:%d;', intval($location_id)),
                     'compare' => 'LIKE'
                 ]
             ];

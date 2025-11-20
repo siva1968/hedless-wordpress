@@ -185,23 +185,52 @@ class LBP_REST_API {
     
     public function set_user_location($request) {
         $location_id = $request->get_param('location_id');
-        
+
         $location = get_post($location_id);
         if (!$location || $location->post_type !== 'lbp_location') {
             return new WP_Error('invalid_location', 'Invalid location ID', ['status' => 400]);
         }
-        
-        // Store in session if available, or return for frontend storage
-        if (session_id() === '') {
-            session_start();
-        }
-        $_SESSION['lbp_selected_location'] = $location_id;
-        
+
+        // Store using WordPress-native methods
+        $this->store_user_location($location_id);
+
         return rest_ensure_response([
             'success' => true,
             'message' => 'Location set successfully',
             'location' => $this->format_location_data($location)
         ]);
+    }
+
+    /**
+     * Store user location using appropriate storage method
+     *
+     * @param int $location_id Location ID to store
+     */
+    private function store_user_location($location_id) {
+        // Set in WooCommerce session if available
+        if (function_exists('WC') && WC()->session) {
+            WC()->session->set('lbp_selected_location', $location_id);
+        }
+
+        // Set transient as fallback (1 hour expiry)
+        $user_identifier = $this->get_user_identifier();
+        $transient_key = 'lbp_location_' . $user_identifier;
+        set_transient($transient_key, $location_id, 3600);
+    }
+
+    /**
+     * Get unique identifier for current user/visitor
+     *
+     * @return string User identifier
+     */
+    private function get_user_identifier() {
+        // Use user ID if logged in
+        if (is_user_logged_in()) {
+            return 'user_' . get_current_user_id();
+        }
+
+        // Use IP address for guests
+        return 'ip_' . md5($this->get_client_ip());
     }
     
     public function get_locations($request) {

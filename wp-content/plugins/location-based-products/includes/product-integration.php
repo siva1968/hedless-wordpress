@@ -197,6 +197,28 @@ class LBP_Product_Integration {
     }
     
     public function save_location_fields($post_id) {
+        // Security checks
+        // Verify nonce
+        if (!isset($_POST['woocommerce_meta_nonce']) ||
+            !wp_verify_nonce($_POST['woocommerce_meta_nonce'], 'woocommerce_save_data')) {
+            return;
+        }
+
+        // Check user capabilities
+        if (!current_user_can('edit_product', $post_id)) {
+            return;
+        }
+
+        // Check autosave
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+            return;
+        }
+
+        // Check if this is a revision
+        if (wp_is_post_revision($post_id)) {
+            return;
+        }
+
         // Save basic location fields
         $fields = [
             '_lbp_availability_type',
@@ -224,9 +246,22 @@ class LBP_Product_Integration {
         if (isset($_POST['_lbp_location_prices'])) {
             $location_prices = [];
             foreach ($_POST['_lbp_location_prices'] as $location_id => $prices) {
+                // Use WooCommerce's decimal formatting for prices
+                $regular_price = wc_format_decimal($prices['regular']);
+                $sale_price = wc_format_decimal($prices['sale']);
+
+                // Validate prices are non-negative
+                $regular_price = ($regular_price !== '' && $regular_price < 0) ? '' : $regular_price;
+                $sale_price = ($sale_price !== '' && $sale_price < 0) ? '' : $sale_price;
+
+                // Ensure sale price is less than regular price
+                if ($regular_price !== '' && $sale_price !== '' && $sale_price >= $regular_price) {
+                    $sale_price = '';
+                }
+
                 $location_prices[intval($location_id)] = [
-                    'regular' => sanitize_text_field($prices['regular']),
-                    'sale' => sanitize_text_field($prices['sale'])
+                    'regular' => $regular_price,
+                    'sale' => $sale_price
                 ];
             }
             update_post_meta($post_id, '_lbp_location_prices', $location_prices);

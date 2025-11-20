@@ -78,6 +78,95 @@ class LBP_GST_Integration {
     }
 
     /**
+     * Check rate limit for API requests
+     *
+     * @param WP_REST_Request $request Request object
+     * @return bool|WP_Error True if within limit, WP_Error if exceeded
+     */
+    private function check_rate_limit($request) {
+        // Get client IP
+        $ip = $this->get_client_ip();
+        $endpoint = $request->get_route();
+        $transient_key = 'lbp_rate_limit_' . md5($ip . $endpoint);
+
+        $requests = get_transient($transient_key);
+        if ($requests === false) {
+            set_transient($transient_key, 1, 60); // 1 request in last minute
+            return true;
+        }
+
+        // Max 60 requests per minute per endpoint
+        if ($requests >= 60) {
+            return new WP_Error(
+                'rate_limit_exceeded',
+                __('Too many requests. Please try again later.', 'location-based-products'),
+                ['status' => 429]
+            );
+        }
+
+        set_transient($transient_key, $requests + 1, 60);
+        return true;
+    }
+
+    /**
+     * Get client IP address
+     *
+     * @return string Client IP address
+     */
+    private function get_client_ip() {
+        $ip_keys = ['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_CLIENT_IP', 'REMOTE_ADDR'];
+        foreach ($ip_keys as $key) {
+            if (!empty($_SERVER[$key])) {
+                $ip = $_SERVER[$key];
+                if (strpos($ip, ',') !== false) {
+                    $ip = explode(',', $ip)[0];
+                }
+                return trim($ip);
+            }
+        }
+        return '127.0.0.1';
+    }
+
+    /**
+     * Permission callback for public endpoints with rate limiting
+     *
+     * @param WP_REST_Request $request Request object
+     * @return bool|WP_Error
+     */
+    public function public_permission_callback($request) {
+        $rate_check = $this->check_rate_limit($request);
+        if (is_wp_error($rate_check)) {
+            return $rate_check;
+        }
+        return true;
+    }
+
+    /**
+     * Permission callback for authenticated endpoints
+     *
+     * @param WP_REST_Request $request Request object
+     * @return bool|WP_Error
+     */
+    public function authenticated_permission_callback($request) {
+        // Check rate limit first
+        $rate_check = $this->check_rate_limit($request);
+        if (is_wp_error($rate_check)) {
+            return $rate_check;
+        }
+
+        // Require authentication
+        if (!is_user_logged_in()) {
+            return new WP_Error(
+                'rest_forbidden',
+                __('You must be logged in to access this endpoint.', 'location-based-products'),
+                ['status' => 401]
+            );
+        }
+
+        return true;
+    }
+
+    /**
      * Register GST REST API endpoints
      */
     public function register_gst_endpoints() {
@@ -87,7 +176,7 @@ class LBP_GST_Integration {
         register_rest_route($namespace, '/gst/rates', [
             'methods' => 'GET',
             'callback' => [$this, 'get_gst_rates'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [$this, 'public_permission_callback'],
             'args' => [
                 'location_id' => [
                     'type' => 'integer',
@@ -104,7 +193,7 @@ class LBP_GST_Integration {
         register_rest_route($namespace, '/gst/calculate', [
             'methods' => 'POST',
             'callback' => [$this, 'calculate_gst'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [$this, 'public_permission_callback'],
             'args' => [
                 'product_id' => [
                     'required' => true,
@@ -127,7 +216,7 @@ class LBP_GST_Integration {
         register_rest_route($namespace, '/gst/validate-gstin', [
             'methods' => 'POST',
             'callback' => [$this, 'validate_gstin'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [$this, 'public_permission_callback'],
             'args' => [
                 'gstin' => [
                     'required' => true,
@@ -141,7 +230,7 @@ class LBP_GST_Integration {
         register_rest_route($namespace, '/gst/breakdown', [
             'methods' => 'GET',
             'callback' => [$this, 'get_tax_breakdown'],
-            'permission_callback' => '__return_true',
+            'permission_callback' => [$this, 'public_permission_callback'],
             'args' => [
                 'location_id' => [
                     'required' => true,
@@ -275,7 +364,7 @@ class LBP_GST_Integration {
     }
 
     /**
-     * Validate GSTIN format
+     * Validate GSTIN format and checksum
      */
     public function validate_gstin($request) {
         $gstin = strtoupper($request->get_param('gstin'));
@@ -284,29 +373,79 @@ class LBP_GST_Integration {
         // Example: 29ABCDE1234F1Z5
         $pattern = '/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/';
 
-        $is_valid = preg_match($pattern, $gstin) === 1;
+        $format_valid = preg_match($pattern, $gstin) === 1;
 
         $response = [
             'success' => true,
             'gstin' => $gstin,
-            'valid' => $is_valid
+            'valid' => false
         ];
 
-        if ($is_valid) {
-            $state_code = substr($gstin, 0, 2);
-            $pan = substr($gstin, 2, 10);
-
-            $response['details'] = [
-                'state_code' => $state_code,
-                'pan' => $pan,
-                'format_valid' => true
-            ];
-        } else {
+        if (!$format_valid) {
             $response['error'] = 'Invalid GSTIN format';
             $response['format'] = '2-digit state code + 10-digit PAN + 1 alphabet + 1 digit + Z + 1 check digit';
+            return rest_ensure_response($response);
         }
 
+        // Verify checksum
+        $checksum_valid = $this->verify_gstin_checksum($gstin);
+
+        if (!$checksum_valid) {
+            $response['error'] = 'Invalid GSTIN checksum';
+            $response['details'] = [
+                'format_valid' => true,
+                'checksum_valid' => false
+            ];
+            return rest_ensure_response($response);
+        }
+
+        // Both format and checksum are valid
+        $state_code = substr($gstin, 0, 2);
+        $pan = substr($gstin, 2, 10);
+
+        $response['valid'] = true;
+        $response['details'] = [
+            'state_code' => $state_code,
+            'pan' => $pan,
+            'format_valid' => true,
+            'checksum_valid' => true
+        ];
+
         return rest_ensure_response($response);
+    }
+
+    /**
+     * Verify GSTIN checksum digit
+     *
+     * @param string $gstin GSTIN number
+     * @return bool True if checksum is valid
+     */
+    private function verify_gstin_checksum($gstin) {
+        // Character set for GSTIN validation
+        $chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        $factor = 2;
+        $sum = 0;
+
+        // Process all characters except the last one (check digit)
+        for ($i = strlen($gstin) - 2; $i >= 0; $i--) {
+            $char = $gstin[$i];
+            $value = strpos($chars, $char);
+
+            if ($value === false) {
+                return false; // Invalid character
+            }
+
+            $product = $value * $factor;
+            $sum += floor($product / 36) + ($product % 36);
+            $factor = ($factor == 2) ? 1 : 2;
+        }
+
+        // Calculate check digit
+        $checksum_value = (36 - ($sum % 36)) % 36;
+        $checksum_char = $chars[$checksum_value];
+
+        // Compare with actual check digit
+        return $gstin[strlen($gstin) - 1] === $checksum_char;
     }
 
     /**
@@ -514,10 +653,10 @@ class LBP_GST_Integration {
     }
 
     /**
-     * Get current location ID from session
+     * Get current location ID from session/cookie/transient
      */
     private function get_current_location_id() {
-        // Try session first
+        // Try WooCommerce session first (best for cart/checkout context)
         if (function_exists('WC') && WC()->session) {
             $location_id = WC()->session->get('lbp_selected_location');
             if ($location_id) {
@@ -525,17 +664,52 @@ class LBP_GST_Integration {
             }
         }
 
-        // Try cookie
+        // Try cookie (persistent across sessions)
         if (isset($_COOKIE['lbp_location_id'])) {
             return intval($_COOKIE['lbp_location_id']);
         }
 
-        // Try PHP session
-        if (session_id() && isset($_SESSION['lbp_selected_location'])) {
-            return intval($_SESSION['lbp_selected_location']);
+        // Try transient (temporary storage based on user identifier)
+        $user_identifier = $this->get_user_identifier();
+        $transient_key = 'lbp_location_' . $user_identifier;
+        $location_id = get_transient($transient_key);
+        if ($location_id) {
+            return intval($location_id);
         }
 
         return null;
+    }
+
+    /**
+     * Set current location ID using appropriate storage method
+     *
+     * @param int $location_id Location ID to store
+     */
+    private function set_current_location_id($location_id) {
+        // Set in WooCommerce session if available
+        if (function_exists('WC') && WC()->session) {
+            WC()->session->set('lbp_selected_location', $location_id);
+        }
+
+        // Set transient as fallback (1 hour expiry)
+        $user_identifier = $this->get_user_identifier();
+        $transient_key = 'lbp_location_' . $user_identifier;
+        set_transient($transient_key, $location_id, 3600);
+    }
+
+    /**
+     * Get unique identifier for current user/visitor
+     *
+     * @return string User identifier
+     */
+    private function get_user_identifier() {
+        // Use user ID if logged in
+        if (is_user_logged_in()) {
+            return 'user_' . get_current_user_id();
+        }
+
+        // Use IP address for guests
+        return 'ip_' . md5($this->get_client_ip());
     }
 
     /**
