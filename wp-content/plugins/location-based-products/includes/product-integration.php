@@ -101,7 +101,41 @@ class LBP_Product_Integration {
             'label' => __('Manage stock per location', 'location-based-products'),
             'description' => __('Enable separate inventory tracking for each location', 'location-based-products'),
         ]);
-        
+
+        echo '</div>';
+
+        // GST Configuration
+        echo '<div class="options_group">';
+        echo '<h4>' . __('GST Configuration', 'location-based-products') . '</h4>';
+
+        woocommerce_wp_select([
+            'id' => '_lbp_gst_rate',
+            'label' => __('GST Rate Override', 'location-based-products'),
+            'description' => __('Override location default GST rate for this product. Leave empty to use location default.', 'location-based-products'),
+            'desc_tip' => true,
+            'options' => [
+                '' => __('Use location default', 'location-based-products'),
+                '0' => __('0% (Exempt)', 'location-based-products'),
+                '5' => __('5% (Essential goods)', 'location-based-products'),
+                '12' => __('12% (Standard goods)', 'location-based-products'),
+                '18' => __('18% (Most goods)', 'location-based-products'),
+                '28' => __('28% (Luxury)', 'location-based-products')
+            ]
+        ]);
+
+        woocommerce_wp_text_input([
+            'id' => '_lbp_hsn_code',
+            'label' => __('HSN Code', 'location-based-products'),
+            'description' => __('Harmonized System of Nomenclature code for GST. Leave empty to use location default (9403 for furniture).', 'location-based-products'),
+            'desc_tip' => true,
+            'type' => 'text',
+            'placeholder' => '9403',
+            'custom_attributes' => [
+                'pattern' => '\d{4,8}',
+                'title' => 'HSN code must be 4, 6, or 8 digits'
+            ]
+        ]);
+
         echo '</div>';
         
         // Location-specific pricing table
@@ -222,12 +256,23 @@ class LBP_Product_Integration {
         // Save basic location fields
         $fields = [
             '_lbp_availability_type',
-            '_lbp_delivery_type'
+            '_lbp_delivery_type',
+            '_lbp_gst_rate'
         ];
-        
+
         foreach ($fields as $field) {
             if (isset($_POST[$field])) {
                 update_post_meta($post_id, $field, sanitize_text_field($_POST[$field]));
+            }
+        }
+
+        // Save and validate HSN code
+        if (isset($_POST['_lbp_hsn_code'])) {
+            $hsn_code = sanitize_text_field($_POST['_lbp_hsn_code']);
+
+            // Validate HSN code (must be 4, 6, or 8 digits)
+            if ($hsn_code === '' || preg_match('/^\d{4}(\d{2})?(\d{2})?$/', $hsn_code)) {
+                update_post_meta($post_id, '_lbp_hsn_code', $hsn_code);
             }
         }
         

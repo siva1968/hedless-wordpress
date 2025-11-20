@@ -491,6 +491,122 @@ class LBP_REST_API {
         $location = get_post($value);
         return $location && $location->post_type === 'lbp_location';
     }
+
+    /**
+     * Get meta query for location availability filtering
+     *
+     * @param int $location_id Location ID to filter by
+     * @return array Meta query array
+     */
+    private function get_location_availability_meta_query($location_id) {
+        return [
+            'relation' => 'OR',
+            [
+                'key' => '_lbp_availability_type',
+                'value' => 'all',
+                'compare' => '='
+            ],
+            [
+                'key' => '_lbp_availability_type',
+                'compare' => 'NOT EXISTS'
+            ],
+            [
+                'relation' => 'AND',
+                [
+                    'key' => '_lbp_availability_type',
+                    'value' => 'specific',
+                    'compare' => '='
+                ],
+                [
+                    'key' => '_lbp_selected_locations',
+                    'value' => sprintf('i:%d;', intval($location_id)),
+                    'compare' => 'LIKE'
+                ]
+            ],
+            [
+                'relation' => 'AND',
+                [
+                    'key' => '_lbp_availability_type',
+                    'value' => 'exclude',
+                    'compare' => '='
+                ],
+                [
+                    'key' => '_lbp_selected_locations',
+                    'value' => sprintf('i:%d;', intval($location_id)),
+                    'compare' => 'NOT LIKE'
+                ]
+            ]
+        ];
+    }
+
+    /**
+     * Format product data for specific location
+     *
+     * @param WC_Product $product Product object
+     * @param int $location_id Location ID
+     * @return array Formatted product data
+     */
+    private function format_product_for_location($product, $location_id) {
+        return LBP_Helpers::format_product_for_location($product, $location_id);
+    }
+
+    /**
+     * Calculate delivery options for location and cart total
+     *
+     * @param int $location_id Location ID
+     * @param float $cart_total Cart total amount
+     * @return array Delivery options
+     */
+    private function calculate_delivery_options($location_id, $cart_total) {
+        $options = [];
+
+        // Get location delivery settings
+        $location = get_post($location_id);
+        if (!$location) {
+            return $options;
+        }
+
+        // Free shipping threshold (default 10000 INR)
+        $free_shipping_threshold = apply_filters(
+            'lbp_free_shipping_threshold',
+            get_option('lbp_free_shipping_threshold', 10000),
+            $location_id
+        );
+
+        // Standard delivery
+        $standard_fee = $cart_total >= $free_shipping_threshold ? 0 : 500;
+        $options['standard'] = [
+            'id' => 'standard',
+            'label' => __('Standard Delivery (5-7 days)', 'location-based-products'),
+            'cost' => $standard_fee,
+            'estimated_days' => '5-7',
+            'description' => $standard_fee === 0
+                ? __('Free shipping on orders above', 'location-based-products') . ' ₹' . number_format($free_shipping_threshold)
+                : __('Regular delivery', 'location-based-products')
+        ];
+
+        // Express delivery (available for all orders)
+        $express_fee = 1000;
+        $options['express'] = [
+            'id' => 'express',
+            'label' => __('Express Delivery (1-2 days)', 'location-based-products'),
+            'cost' => apply_filters('lbp_express_delivery_fee', $express_fee, $location_id, $cart_total),
+            'estimated_days' => '1-2',
+            'description' => __('Fast delivery', 'location-based-products')
+        ];
+
+        // Store pickup (always free)
+        $options['pickup'] = [
+            'id' => 'pickup',
+            'label' => __('Store Pickup', 'location-based-products'),
+            'cost' => 0,
+            'estimated_days' => '0',
+            'description' => __('Pick up from store location', 'location-based-products'),
+            'pickup_address' => get_post_meta($location_id, '_lbp_address', true)
+        ];
+
+        return apply_filters('lbp_delivery_options', $options, $location_id, $cart_total);
+    }
 }
 
 new LBP_REST_API();

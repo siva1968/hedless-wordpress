@@ -597,18 +597,110 @@ class LBP_GST_Integration {
 
     /**
      * Calculate location-based tax
+     *
+     * @param array $taxes Calculated taxes
+     * @param float $price Price to calculate tax on
+     * @param array $rates Tax rates
+     * @return array Modified taxes
      */
     public function calculate_location_based_tax($taxes, $price, $rates) {
+        // Get current location
         $location_id = $this->get_current_location_id();
 
         if (!$location_id) {
             return $taxes;
         }
 
-        // Custom tax calculation logic here
-        // This integrates with WooCommerce's tax system
+        // Get location GST data
+        $gst_data = $this->get_location_gst_data($location_id);
 
-        return $taxes;
+        // Get product ID from context (if available)
+        $product_id = $this->get_current_product_id_from_context();
+
+        // Check for product-specific GST override
+        if ($product_id) {
+            $product_gst_rate = get_post_meta($product_id, '_lbp_gst_rate', true);
+            if ($product_gst_rate !== '') {
+                $gst_data['gst_rate'] = floatval($product_gst_rate);
+
+                // Recalculate split rates
+                if ($gst_data['gst_type'] === 'intrastate') {
+                    $gst_data['cgst_rate'] = $gst_data['gst_rate'] / 2;
+                    $gst_data['sgst_rate'] = $gst_data['gst_rate'] / 2;
+                } else {
+                    $gst_data['igst_rate'] = $gst_data['gst_rate'];
+                }
+            }
+        }
+
+        // Calculate tax amount
+        $tax_amount = ($price * $gst_data['gst_rate']) / 100;
+
+        // Create custom tax array based on GST type
+        $custom_taxes = [];
+
+        if ($gst_data['gst_type'] === 'intrastate') {
+            // Split into CGST and SGST
+            $cgst_amount = ($price * $gst_data['cgst_rate']) / 100;
+            $sgst_amount = ($price * $gst_data['sgst_rate']) / 100;
+
+            $custom_taxes['cgst'] = [
+                'label' => sprintf(__('CGST (%s%%)', 'location-based-products'), $gst_data['cgst_rate']),
+                'rate' => $gst_data['cgst_rate'],
+                'amount' => $cgst_amount,
+                'compound' => false
+            ];
+
+            $custom_taxes['sgst'] = [
+                'label' => sprintf(__('SGST (%s%%)', 'location-based-products'), $gst_data['sgst_rate']),
+                'rate' => $gst_data['sgst_rate'],
+                'amount' => $sgst_amount,
+                'compound' => false
+            ];
+        } else {
+            // Interstate - use IGST
+            $igst_amount = ($price * $gst_data['igst_rate']) / 100;
+
+            $custom_taxes['igst'] = [
+                'label' => sprintf(__('IGST (%s%%)', 'location-based-products'), $gst_data['igst_rate']),
+                'rate' => $gst_data['igst_rate'],
+                'amount' => $igst_amount,
+                'compound' => false
+            ];
+        }
+
+        // Return custom taxes or original if filter is applied
+        return apply_filters('lbp_calculated_taxes', $custom_taxes, $taxes, $price, $gst_data);
+    }
+
+    /**
+     * Get product ID from current context
+     *
+     * @return int|null Product ID or null
+     */
+    private function get_current_product_id_from_context() {
+        // Try to get from global product
+        global $product;
+        if ($product && is_a($product, 'WC_Product')) {
+            return $product->get_id();
+        }
+
+        // Try to get from backtrace (when called from cart/checkout)
+        $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 15);
+        foreach ($backtrace as $trace) {
+            if (isset($trace['object']) && is_a($trace['object'], 'WC_Product')) {
+                return $trace['object']->get_id();
+            }
+            if (isset($trace['args'])) {
+                foreach ($trace['args'] as $arg) {
+                    if (is_a($arg, 'WC_Product')) {
+                        return $arg->get_id();
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -629,6 +721,11 @@ class LBP_GST_Integration {
 
     /**
      * Save GST data to order
+     *
+     * Stores comprehensive GST information for tax compliance and reporting
+     *
+     * @param WC_Order $order Order object
+     * @param array $data Checkout data
      */
     public function save_gst_data_to_order($order, $data) {
         $location_id = $this->get_current_location_id();
@@ -639,17 +736,91 @@ class LBP_GST_Integration {
 
         $gst_data = $this->get_location_gst_data($location_id);
 
+        // Store location GST configuration
         $order->update_meta_data('_lbp_location_id', $location_id);
         $order->update_meta_data('_lbp_gst_type', $gst_data['gst_type']);
         $order->update_meta_data('_lbp_gst_rate', $gst_data['gst_rate']);
         $order->update_meta_data('_lbp_state', $gst_data['state']);
+        $order->update_meta_data('_lbp_default_hsn_code', $gst_data['hsn_code']);
 
+        // Store split rates
         if ($gst_data['gst_type'] === 'intrastate') {
             $order->update_meta_data('_lbp_cgst_rate', $gst_data['cgst_rate']);
             $order->update_meta_data('_lbp_sgst_rate', $gst_data['sgst_rate']);
         } else {
             $order->update_meta_data('_lbp_igst_rate', $gst_data['igst_rate']);
         }
+
+        // Store customer GSTIN if provided
+        if (!empty($data['billing_gstin'])) {
+            $order->update_meta_data('_billing_gstin', sanitize_text_field($data['billing_gstin']));
+        }
+
+        // Calculate and store GST breakdown for each item
+        $tax_breakdown = [];
+        $total_taxable_value = 0;
+        $total_gst_amount = 0;
+
+        foreach ($order->get_items() as $item_id => $item) {
+            $product_id = $item->get_product_id();
+            $quantity = $item->get_quantity();
+            $subtotal = $item->get_subtotal(); // Price without tax
+
+            // Get product-specific GST or use location default
+            $product_gst_rate = get_post_meta($product_id, '_lbp_gst_rate', true);
+            $product_hsn = get_post_meta($product_id, '_lbp_hsn_code', true);
+
+            $item_gst_rate = $product_gst_rate !== '' ? floatval($product_gst_rate) : $gst_data['gst_rate'];
+            $item_hsn = $product_hsn ?: $gst_data['hsn_code'];
+
+            $tax_amount = ($subtotal * $item_gst_rate) / 100;
+            $total_taxable_value += $subtotal;
+            $total_gst_amount += $tax_amount;
+
+            $item_breakdown = [
+                'product_id' => $product_id,
+                'product_name' => $item->get_name(),
+                'hsn_code' => $item_hsn,
+                'quantity' => $quantity,
+                'taxable_value' => round($subtotal, 2),
+                'gst_rate' => $item_gst_rate
+            ];
+
+            // Add split tax amounts
+            if ($gst_data['gst_type'] === 'intrastate') {
+                $cgst_rate = $item_gst_rate / 2;
+                $sgst_rate = $item_gst_rate / 2;
+
+                $item_breakdown['cgst_rate'] = $cgst_rate;
+                $item_breakdown['sgst_rate'] = $sgst_rate;
+                $item_breakdown['cgst_amount'] = round($tax_amount / 2, 2);
+                $item_breakdown['sgst_amount'] = round($tax_amount / 2, 2);
+                $item_breakdown['total_tax'] = round($tax_amount, 2);
+            } else {
+                $item_breakdown['igst_rate'] = $item_gst_rate;
+                $item_breakdown['igst_amount'] = round($tax_amount, 2);
+                $item_breakdown['total_tax'] = round($tax_amount, 2);
+            }
+
+            $tax_breakdown[$item_id] = $item_breakdown;
+        }
+
+        // Store complete GST breakdown
+        $order->update_meta_data('_lbp_gst_breakdown', $tax_breakdown);
+
+        // Store totals for easy reporting
+        $order->update_meta_data('_lbp_total_taxable_value', round($total_taxable_value, 2));
+        $order->update_meta_data('_lbp_total_gst_amount', round($total_gst_amount, 2));
+
+        // Add order note for GST
+        $gst_note = sprintf(
+            __('GST Details: %s (%s) | Total Taxable: ₹%s | GST: ₹%s', 'location-based-products'),
+            $gst_data['gst_type'] === 'intrastate' ? 'Intrastate (CGST+SGST)' : 'Interstate (IGST)',
+            $gst_data['gst_rate'] . '%',
+            number_format($total_taxable_value, 2),
+            number_format($total_gst_amount, 2)
+        );
+        $order->add_order_note($gst_note);
     }
 
     /**
