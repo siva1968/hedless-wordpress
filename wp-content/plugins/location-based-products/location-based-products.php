@@ -383,6 +383,7 @@ require_once LBP_PLUGIN_PATH . 'includes/woocommerce-compatibility.php';
 require_once LBP_PLUGIN_PATH . 'includes/product-integration.php';
 require_once LBP_PLUGIN_PATH . 'includes/product-attributes.php';
 require_once LBP_PLUGIN_PATH . 'includes/rest-api.php';
+require_once LBP_PLUGIN_PATH . 'includes/rest-api-extended.php';
 require_once LBP_PLUGIN_PATH . 'includes/admin.php';
 
 // Initialize the plugin

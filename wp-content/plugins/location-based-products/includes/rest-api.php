@@ -683,6 +683,265 @@ class LBP_REST_API {
         $location = get_post($value);
         return $location && $location->post_type === 'lbp_location';
     }
+
+    /**
+     * Get location availability meta query
+     */
+    private function get_location_availability_meta_query($location_id) {
+        // This can be extended to filter products based on location availability settings
+        // For now, we'll return null to include all products
+        return null;
+    }
+
+    /**
+     * Format product data for location
+     */
+    private function format_product_for_location($product, $location_id = null) {
+        $data = [
+            'id' => $product->get_id(),
+            'name' => $product->get_name(),
+            'slug' => $product->get_slug(),
+            'permalink' => get_permalink($product->get_id()),
+            'type' => $product->get_type(),
+            'status' => $product->get_status(),
+            'featured' => $product->is_featured(),
+            'description' => $product->get_description(),
+            'short_description' => $product->get_short_description(),
+            'sku' => $product->get_sku(),
+            'price' => $product->get_price(),
+            'regular_price' => $product->get_regular_price(),
+            'sale_price' => $product->get_sale_price(),
+            'on_sale' => $product->is_on_sale(),
+            'stock_status' => $product->get_stock_status(),
+            'stock_quantity' => $product->get_stock_quantity(),
+            'manage_stock' => $product->get_manage_stock(),
+            'average_rating' => $product->get_average_rating(),
+            'rating_count' => $product->get_rating_count(),
+            'categories' => $this->get_product_categories($product),
+            'tags' => $this->get_product_tags($product),
+            'images' => $this->get_product_images($product),
+            'attributes' => $this->get_product_attributes($product),
+            'variations' => $this->get_product_variations($product),
+            'date_created' => $product->get_date_created() ? $product->get_date_created()->date('Y-m-d H:i:s') : null,
+            'date_modified' => $product->get_date_modified() ? $product->get_date_modified()->date('Y-m-d H:i:s') : null,
+        ];
+
+        // Add location-specific data if location is provided
+        if ($location_id) {
+            $data['location_specific'] = [
+                'location_id' => $location_id,
+                'available' => true, // Can be extended with actual location availability logic
+                'delivery_options' => $this->get_product_delivery_options($product, $location_id)
+            ];
+        }
+
+        return $data;
+    }
+
+    /**
+     * Get product categories
+     */
+    private function get_product_categories($product) {
+        $categories = [];
+        $terms = get_the_terms($product->get_id(), 'product_cat');
+        if ($terms && !is_wp_error($terms)) {
+            foreach ($terms as $term) {
+                $categories[] = [
+                    'id' => $term->term_id,
+                    'name' => $term->name,
+                    'slug' => $term->slug
+                ];
+            }
+        }
+        return $categories;
+    }
+
+    /**
+     * Get product tags
+     */
+    private function get_product_tags($product) {
+        $tags = [];
+        $terms = get_the_terms($product->get_id(), 'product_tag');
+        if ($terms && !is_wp_error($terms)) {
+            foreach ($terms as $term) {
+                $tags[] = [
+                    'id' => $term->term_id,
+                    'name' => $term->name,
+                    'slug' => $term->slug
+                ];
+            }
+        }
+        return $tags;
+    }
+
+    /**
+     * Get product images
+     */
+    private function get_product_images($product) {
+        $images = [];
+
+        // Main image
+        $image_id = $product->get_image_id();
+        if ($image_id) {
+            $images[] = [
+                'id' => $image_id,
+                'src' => wp_get_attachment_image_url($image_id, 'full'),
+                'thumbnail' => wp_get_attachment_image_url($image_id, 'thumbnail'),
+                'medium' => wp_get_attachment_image_url($image_id, 'medium'),
+                'large' => wp_get_attachment_image_url($image_id, 'large'),
+                'alt' => get_post_meta($image_id, '_wp_attachment_image_alt', true),
+                'name' => get_the_title($image_id),
+                'position' => 0
+            ];
+        }
+
+        // Gallery images
+        $gallery_ids = $product->get_gallery_image_ids();
+        if ($gallery_ids) {
+            $position = 1;
+            foreach ($gallery_ids as $gallery_id) {
+                $images[] = [
+                    'id' => $gallery_id,
+                    'src' => wp_get_attachment_image_url($gallery_id, 'full'),
+                    'thumbnail' => wp_get_attachment_image_url($gallery_id, 'thumbnail'),
+                    'medium' => wp_get_attachment_image_url($gallery_id, 'medium'),
+                    'large' => wp_get_attachment_image_url($gallery_id, 'large'),
+                    'alt' => get_post_meta($gallery_id, '_wp_attachment_image_alt', true),
+                    'name' => get_the_title($gallery_id),
+                    'position' => $position
+                ];
+                $position++;
+            }
+        }
+
+        return $images;
+    }
+
+    /**
+     * Get product attributes
+     */
+    private function get_product_attributes($product) {
+        $attributes = [];
+        $product_attributes = $product->get_attributes();
+
+        foreach ($product_attributes as $attribute) {
+            $attribute_data = [
+                'id' => $attribute->get_id(),
+                'name' => wc_attribute_label($attribute->get_name()),
+                'slug' => $attribute->get_name(),
+                'visible' => $attribute->get_visible(),
+                'variation' => $attribute->get_variation(),
+                'options' => []
+            ];
+
+            if ($attribute->is_taxonomy()) {
+                $terms = $attribute->get_terms();
+                if ($terms) {
+                    foreach ($terms as $term) {
+                        $attribute_data['options'][] = [
+                            'id' => $term->term_id,
+                            'name' => $term->name,
+                            'slug' => $term->slug
+                        ];
+                    }
+                }
+            } else {
+                $options = $attribute->get_options();
+                foreach ($options as $option) {
+                    $attribute_data['options'][] = [
+                        'name' => $option,
+                        'slug' => sanitize_title($option)
+                    ];
+                }
+            }
+
+            $attributes[] = $attribute_data;
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * Get product variations
+     */
+    private function get_product_variations($product) {
+        $variations = [];
+
+        if ($product->is_type('variable')) {
+            $variation_ids = $product->get_children();
+            foreach ($variation_ids as $variation_id) {
+                $variation = wc_get_product($variation_id);
+                if ($variation) {
+                    $variations[] = [
+                        'id' => $variation->get_id(),
+                        'sku' => $variation->get_sku(),
+                        'price' => $variation->get_price(),
+                        'regular_price' => $variation->get_regular_price(),
+                        'sale_price' => $variation->get_sale_price(),
+                        'on_sale' => $variation->is_on_sale(),
+                        'stock_status' => $variation->get_stock_status(),
+                        'stock_quantity' => $variation->get_stock_quantity(),
+                        'attributes' => $variation->get_variation_attributes(),
+                        'image_id' => $variation->get_image_id()
+                    ];
+                }
+            }
+        }
+
+        return $variations;
+    }
+
+    /**
+     * Get product delivery options for location
+     */
+    private function get_product_delivery_options($product, $location_id) {
+        // Get product-specific delivery options
+        $delivery_type = get_post_meta($product->get_id(), '_lbp_delivery_type', true);
+
+        $options = [];
+        if (!$delivery_type || $delivery_type === 'standard') {
+            $options[] = 'standard';
+        }
+        if ($delivery_type === 'express' || !$delivery_type) {
+            $options[] = 'express';
+        }
+        if ($delivery_type === 'pickup_only') {
+            $options[] = 'pickup';
+        }
+
+        return $options;
+    }
+
+    /**
+     * Calculate delivery options for location
+     */
+    private function calculate_delivery_options($location_id, $cart_total) {
+        $options = [
+            [
+                'type' => 'standard',
+                'name' => 'Standard Delivery',
+                'description' => '5-7 business days',
+                'fee' => $cart_total >= 10000 ? 0 : 500, // Free delivery above ₹10,000
+                'currency' => 'INR'
+            ],
+            [
+                'type' => 'express',
+                'name' => 'Express Delivery',
+                'description' => '2-3 business days',
+                'fee' => $cart_total >= 25000 ? 500 : 1000,
+                'currency' => 'INR'
+            ],
+            [
+                'type' => 'pickup',
+                'name' => 'Store Pickup',
+                'description' => 'Pickup from store',
+                'fee' => 0,
+                'currency' => 'INR'
+            ]
+        ];
+
+        return $options;
+    }
 }
 
 new LBP_REST_API();
