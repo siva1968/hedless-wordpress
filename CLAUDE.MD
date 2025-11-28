@@ -164,6 +164,88 @@ GET    /wp-json/headless/v1/store-info     # Store configuration
 - `_lbp_location_stock_levels` - Array: `[location_id => quantity]`
 - `_lbp_delivery_type` - Values: `standard`, `express`, `pickup_only`
 
+## Product Categories and Filters
+
+### Home Screen Categories
+
+The website features **12 main product categories** displayed in a 2-column slideable carousel format:
+
+1. AF Luxe
+2. Sofa sets
+3. Recliners
+4. Tables
+5. Beds
+6. Mattress
+7. Dining Sets
+8. Storage Units
+9. Outdoor furniture
+10. Study & Office
+11. Bean Bags & Pouffes
+12. Décor
+
+### Product Filter System
+
+Each product category has its own set of filters for enhanced product discovery. Comprehensive filter definitions are available in [FILTERS-CONFIGURATION.md](./FILTERS-CONFIGURATION.md).
+
+**Common Filters Across Categories:**
+- **Price Range** - Custom min/max price filtering
+- **Availability** - In stock / Out of stock
+- **Discount %** - Discount range filters (0-15%, 16-35%, Above 35%)
+
+**Category-Specific Filters:**
+
+#### Sofas & Recliners
+- Type (Sofa sets, Recliner Sets, Corner Sofas, etc.)
+- Size (3+2+1, 3+2, 1-4 seater, etc.)
+- Material (Fabric, Leather, Vegan Leather, etc.)
+- Colour (12+ color options)
+- Mechanism (Motorised/Manual - for recliners)
+
+#### Tables
+- Type (Centre Tables, End Tables, Console Tables, Nesting Tables)
+- Size (2ft, 3ft, 4ft, 5ft)
+- Material (Marble, Solid Wood, Engineered Wood)
+
+#### Chairs
+- Type (Accent Chairs, Folding Chairs, Café Chairs, Rocking Chairs, Stools)
+- Material (Fabric, Leather, Wood, Metal, etc.)
+
+#### Beds
+- Type (Solid Wood, Upholstered, Hydraulic Storage, etc.)
+- Size (King/6FT, Queen/5FT, Double/4FT, Single/3FT, Bunk, Kids)
+- Storage (With Storage, Without Storage, Hydraulic Storage)
+- Headboard Type (Solid, Upholstered)
+- Upholstery (Fabric, Velvet, Leather, Vegan Leather)
+- Material (Solid wood, Engineered wood)
+
+#### Mattress
+- Type (Memory Foam, Latex, Spring, Coir, etc.)
+- Size (King/6FT to King XL/7FT)
+- Brand (Reclix, Century, Kurlon, Sleepwell, DuroFlex)
+- Thickness (4 inch to 12 inch)
+
+### Filter API Implementation
+
+Filter products using the location-based products API:
+
+```bash
+# Get filtered products
+curl "http://localhost/hedless/wp-json/lbp/v1/products?category=sofas&type=Corner+Sofas&material=Fabric&colour=Beige&location_id=123"
+
+# With price range
+curl "http://localhost/hedless/wp-json/lbp/v1/products?category=beds&price_min=20000&price_max=50000&location_id=123"
+
+# Multiple filter values
+curl "http://localhost/hedless/wp-json/lbp/v1/products?category=mattress&brand=Kurlon,Sleepwell&thickness=6+inch,8+inch"
+```
+
+**See [FILTERS-CONFIGURATION.md](./FILTERS-CONFIGURATION.md) for:**
+- Complete filter definitions for all categories
+- WooCommerce taxonomy mapping
+- REST API implementation guide
+- Frontend integration examples
+- Database setup instructions
+
 ## Common Development Tasks
 
 ### Testing JWT Authentication
@@ -397,6 +479,7 @@ These files are for development and should NOT be deployed to production:
 
 ## Documentation References
 
+- [FILTERS-CONFIGURATION.md](./FILTERS-CONFIGURATION.md) - **Product categories and filter definitions** (from AF Website changes.xlsx)
 - [PLUGIN-IMPLEMENTATION-SUMMARY.md](./PLUGIN-IMPLEMENTATION-SUMMARY.md) - Detailed location plugin documentation
 - [TEST-RESULTS.md](./TEST-RESULTS.md) - JWT authentication test results
 - [WOOCOMMERCE-COMPATIBILITY-RESOLVED.md](./WOOCOMMERCE-COMPATIBILITY-RESOLVED.md) - WooCommerce integration notes
