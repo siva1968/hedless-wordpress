@@ -89,8 +89,8 @@ class LBP_REST_API {
                     'description' => 'Postal code to filter products'
                 ],
                 'category' => [
-                    'type' => 'integer',
-                    'description' => 'Product category ID'
+                    'type' => 'string',
+                    'description' => 'Product category slug or ID'
                 ],
                 'per_page' => [
                     'type' => 'integer',
@@ -100,6 +100,80 @@ class LBP_REST_API {
                 'page' => [
                     'type' => 'integer',
                     'default' => 1
+                ],
+                'orderby' => [
+                    'type' => 'string',
+                    'default' => 'date',
+                    'enum' => ['date', 'title', 'price', 'popularity', 'rating']
+                ],
+                'order' => [
+                    'type' => 'string',
+                    'default' => 'desc',
+                    'enum' => ['asc', 'desc']
+                ],
+                'search' => [
+                    'type' => 'string',
+                    'description' => 'Search query for products'
+                ],
+                // Filter parameters
+                'type' => [
+                    'type' => 'string',
+                    'description' => 'Product type filter (comma-separated for multiple)'
+                ],
+                'size' => [
+                    'type' => 'string',
+                    'description' => 'Size filter (comma-separated for multiple)'
+                ],
+                'material' => [
+                    'type' => 'string',
+                    'description' => 'Material filter (comma-separated for multiple)'
+                ],
+                'colour' => [
+                    'type' => 'string',
+                    'description' => 'Colour filter (comma-separated for multiple)'
+                ],
+                'storage' => [
+                    'type' => 'string',
+                    'description' => 'Storage type filter'
+                ],
+                'headboard' => [
+                    'type' => 'string',
+                    'description' => 'Headboard type filter'
+                ],
+                'upholstery' => [
+                    'type' => 'string',
+                    'description' => 'Upholstery filter'
+                ],
+                'brand' => [
+                    'type' => 'string',
+                    'description' => 'Brand filter (comma-separated for multiple)'
+                ],
+                'mechanism' => [
+                    'type' => 'string',
+                    'description' => 'Mechanism filter (for recliners)'
+                ],
+                'thickness' => [
+                    'type' => 'string',
+                    'description' => 'Thickness filter (for mattresses)'
+                ],
+                'discount_range' => [
+                    'type' => 'string',
+                    'description' => 'Discount range filter'
+                ],
+                // Price filters
+                'price_min' => [
+                    'type' => 'number',
+                    'description' => 'Minimum price filter'
+                ],
+                'price_max' => [
+                    'type' => 'number',
+                    'description' => 'Maximum price filter'
+                ],
+                // Stock filter
+                'stock_status' => [
+                    'type' => 'string',
+                    'description' => 'Stock status filter',
+                    'enum' => ['instock', 'outofstock', 'onbackorder']
                 ]
             ]
         ]);
@@ -248,7 +322,10 @@ class LBP_REST_API {
         $category = $request->get_param('category');
         $per_page = $request->get_param('per_page');
         $page = $request->get_param('page');
-        
+        $orderby = $request->get_param('orderby');
+        $order = $request->get_param('order');
+        $search = $request->get_param('search');
+
         // Determine location
         $location = null;
         if ($location_id) {
@@ -256,54 +333,167 @@ class LBP_REST_API {
         } elseif ($postal_code) {
             $location = $this->find_location_by_postal_code($postal_code);
         }
-        
+
         if (!$location) {
             $location = $this->get_default_location();
         }
-        
+
         // Get products
         $args = [
             'post_type' => 'product',
             'posts_per_page' => $per_page,
             'paged' => $page,
             'post_status' => 'publish',
+            'order' => strtoupper($order),
             'meta_query' => [
-                [
-                    'key' => '_visibility',
-                    'value' => ['hidden', 'search'],
-                    'compare' => 'NOT IN'
-                ]
+                'relation' => 'AND'
+            ],
+            'tax_query' => [
+                'relation' => 'AND'
             ]
         ];
-        
+
+        // Handle search
+        if ($search) {
+            $args['s'] = sanitize_text_field($search);
+        }
+
+        // Handle orderby
+        switch ($orderby) {
+            case 'price':
+                $args['orderby'] = 'meta_value_num';
+                $args['meta_key'] = '_price';
+                break;
+            case 'title':
+                $args['orderby'] = 'title';
+                break;
+            case 'popularity':
+                $args['orderby'] = 'meta_value_num';
+                $args['meta_key'] = 'total_sales';
+                break;
+            case 'rating':
+                $args['orderby'] = 'meta_value_num';
+                $args['meta_key'] = '_wc_average_rating';
+                break;
+            default:
+                $args['orderby'] = 'date';
+        }
+
+        // Category filter
         if ($category) {
-            $args['tax_query'] = [
-                [
-                    'taxonomy' => 'product_cat',
-                    'field' => 'term_id',
-                    'terms' => $category
-                ]
+            $field = is_numeric($category) ? 'term_id' : 'slug';
+            $args['tax_query'][] = [
+                'taxonomy' => 'product_cat',
+                'field' => $field,
+                'terms' => $category
             ];
         }
-        
-        // Filter by location availability
-        $args['meta_query'][] = $this->get_location_availability_meta_query($location->ID);
-        
+
+        // Apply product attribute filters
+        $attribute_filters = [
+            'type' => 'pa_type',
+            'size' => 'pa_size',
+            'material' => 'pa_material',
+            'colour' => 'pa_colour',
+            'storage' => 'pa_storage',
+            'headboard' => 'pa_headboard',
+            'upholstery' => 'pa_upholstery',
+            'brand' => 'pa_brand',
+            'mechanism' => 'pa_mechanism',
+            'thickness' => 'pa_thickness',
+            'discount_range' => 'pa_discount_range'
+        ];
+
+        foreach ($attribute_filters as $param => $taxonomy) {
+            $value = $request->get_param($param);
+            if ($value) {
+                // Support comma-separated values for multiple filters
+                $terms = array_map('trim', explode(',', $value));
+                $terms = array_map('sanitize_text_field', $terms);
+
+                // Convert to slugs for taxonomy query
+                $term_slugs = array_map('sanitize_title', $terms);
+
+                $args['tax_query'][] = [
+                    'taxonomy' => $taxonomy,
+                    'field' => 'slug',
+                    'terms' => $term_slugs,
+                    'operator' => 'IN'
+                ];
+            }
+        }
+
+        // Price range filter
+        $price_min = $request->get_param('price_min');
+        $price_max = $request->get_param('price_max');
+
+        if ($price_min !== null || $price_max !== null) {
+            $price_query = ['relation' => 'AND'];
+
+            if ($price_min !== null) {
+                $price_query[] = [
+                    'key' => '_price',
+                    'value' => floatval($price_min),
+                    'compare' => '>=',
+                    'type' => 'NUMERIC'
+                ];
+            }
+
+            if ($price_max !== null) {
+                $price_query[] = [
+                    'key' => '_price',
+                    'value' => floatval($price_max),
+                    'compare' => '<=',
+                    'type' => 'NUMERIC'
+                ];
+            }
+
+            $args['meta_query'][] = $price_query;
+        }
+
+        // Stock status filter
+        $stock_status = $request->get_param('stock_status');
+        if ($stock_status) {
+            $args['meta_query'][] = [
+                'key' => '_stock_status',
+                'value' => sanitize_text_field($stock_status),
+                'compare' => '='
+            ];
+        }
+
+        // Filter by location availability (if location-based filtering is enabled)
+        if ($location && method_exists($this, 'get_location_availability_meta_query')) {
+            $location_query = $this->get_location_availability_meta_query($location->ID);
+            if ($location_query) {
+                $args['meta_query'][] = $location_query;
+            }
+        }
+
+        // Remove empty tax_query to avoid errors
+        if (count($args['tax_query']) === 1) {
+            unset($args['tax_query']);
+        }
+
+        // Execute query
         $query = new WP_Query($args);
         $products = [];
-        
+
         foreach ($query->posts as $post) {
             $product = wc_get_product($post->ID);
             if ($product) {
-                $product_data = $this->format_product_for_location($product, $location->ID);
+                $product_data = $this->format_product_for_location($product, $location ? $location->ID : null);
                 $products[] = $product_data;
             }
         }
-        
+
+        // Get applied filters for response
+        $applied_filters = $this->get_applied_filters($request);
+
         return rest_ensure_response([
             'success' => true,
             'products' => $products,
             'location' => $this->format_location_data($location),
+            'filters' => $applied_filters,
             'pagination' => [
                 'total' => $query->found_posts,
                 'per_page' => $per_page,
@@ -311,6 +501,37 @@ class LBP_REST_API {
                 'total_pages' => $query->max_num_pages
             ]
         ]);
+    }
+
+    /**
+     * Get applied filters from request
+     */
+    private function get_applied_filters($request) {
+        $filters = [];
+        $filter_params = [
+            'type', 'size', 'material', 'colour', 'storage',
+            'headboard', 'upholstery', 'brand', 'mechanism',
+            'thickness', 'discount_range', 'stock_status'
+        ];
+
+        foreach ($filter_params as $param) {
+            $value = $request->get_param($param);
+            if ($value) {
+                $filters[$param] = $value;
+            }
+        }
+
+        // Add price range
+        $price_min = $request->get_param('price_min');
+        $price_max = $request->get_param('price_max');
+        if ($price_min !== null || $price_max !== null) {
+            $filters['price_range'] = [
+                'min' => $price_min,
+                'max' => $price_max
+            ];
+        }
+
+        return $filters;
     }
     
     public function check_product_availability($request) {
