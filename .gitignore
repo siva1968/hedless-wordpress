@@ -60,6 +60,11 @@ wp-content/uploads/wc-logs/
 vendor/
 composer.lock
 
+# PHPUnit Testing
+/coverage/
+.phpunit.result.cache
+/tests/Fixtures/temp/
+
 # Security
 .htaccess.bak
 wp-config-sample.php
